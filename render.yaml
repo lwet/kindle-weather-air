@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: kindle-weather-air
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install .
+    startCommand: python -m paperwhite_weather.cloud
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: WEATHER_LOCATION
+        sync: false
+      - key: WEATHER_LATITUDE
+        sync: false
+      - key: WEATHER_LONGITUDE
+        sync: false
+      - key: WEATHER_TIMEZONE
+        value: Australia/Brisbane

@@ -1,0 +1,424 @@
+"""Drawing helpers shared by skins: scaled measurements, text, rules, icons, formatting.
+
+A skin composes on a canvas of arbitrary size. ``Canvas`` maps a design made for the
+Paperwhite 3 (1072x1448 portrait, 1448x1072 landscape) onto that size so a skin written
+once renders correctly on other panels and in both orientations.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+
+from PIL import Image, ImageDraw
+
+from paperwhite_weather.config import Settings
+from paperwhite_weather.fonts import Weight, load_font
+from paperwhite_weather.icons import (
+    draw_drop,
+    draw_icon,
+    draw_moon_phase,
+    draw_sun,
+    draw_thermometer,
+    draw_wind,
+)
+from paperwhite_weather.models import Condition, DailyForecast, WeatherSnapshot
+from paperwhite_weather.skins.band_chart import draw_band_chart
+from paperwhite_weather.skins.base import (
+    BLACK,
+    CONDITION_LABELS,
+    DARK_GRAY,
+    WHITE,
+    fit_font,
+    format_clock,
+    format_temperature,
+)
+from paperwhite_weather.skins.sun_arc import draw_sun_arc
+from paperwhite_weather.skins.temperature_bars import (
+    TemperatureRow,
+    draw_temperature_bars,
+    rows_for_days,
+)
+from paperwhite_weather.sun import moon_illumination
+
+DESIGN_PORTRAIT = (1072, 1448)
+DESIGN_LANDSCAPE = (1448, 1072)
+
+# Before the clock: the panel is repainted every few minutes, so a bare clock would read as
+# the time now instead of the time the frame was made.
+CLOCK_CAPTION = "as of"
+
+
+class Canvas:
+    """One frame being drawn, with the snapshot and settings it draws from."""
+
+    def __init__(
+        self, size: tuple[int, int], snapshot: WeatherSnapshot, settings: Settings, now: datetime
+    ) -> None:
+        self.image = Image.new("L", size, WHITE)
+        self.draw = ImageDraw.Draw(self.image)
+        self.width, self.height = size
+        self.snapshot = snapshot
+        self.settings = settings
+        self.now = now
+        self.tz = snapshot.location.tzinfo
+        self.time_format = settings.display.time_format
+        self.landscape = self.width > self.height
+        design = DESIGN_LANDSCAPE if self.landscape else DESIGN_PORTRAIT
+        self.scale = min(self.width / design[0], self.height / design[1])
+        self.margin = round(0.06 * min(self.width, self.height))
+
+    # Measurements
+
+    def px(self, design_px: float) -> int:
+        """Scale a design measurement to canvas pixels, never below one pixel."""
+        return max(1, round(design_px * self.scale))
+
+    @property
+    def content_width(self) -> int:
+        return self.width - 2 * self.margin
+
+    # Text
+
+    def text(
+        self,
+        xy: tuple[float, float],
+        text: str,
+        weight: Weight,
+        size: float,
+        fill: int = BLACK,
+        anchor: str = "la",
+        max_width: float | None = None,
+    ) -> int:
+        """Draw ``text`` at design size ``size``; shrink to ``max_width`` if given.
+
+        Returns the font size actually used, in pixels.
+        """
+        if max_width is None:
+            font = load_font(weight, self.px(size))
+        else:
+            font = fit_font(self.draw, text, weight, self.px(size), max_width)
+        self.draw.text(xy, text, font=font, fill=fill, anchor=anchor)
+        return int(font.size)
+
+    def text_width(self, text: str, weight: Weight, size: float) -> float:
+        return float(self.draw.textlength(text, font=load_font(weight, self.px(size))))
+
+    def rule(
+        self, x: float, y: float, width: float, fill: int = BLACK, thickness: float = 3
+    ) -> int:
+        self.draw.line([(x, y), (x + width, y)], fill=fill, width=self.px(thickness))
+        return round(y + self.px(thickness))
+
+    @property
+    def night(self) -> bool:
+        """Whether ``now`` is between sunset and the next sunrise (icons show a moon)."""
+        return not (self.snapshot.sun.sunrise <= self.now <= self.snapshot.sun.sunset)
+
+    def icon(
+        self, condition: Condition, box: tuple[float, float, float, float], night: bool = False
+    ) -> None:
+        """Draw the condition icon in ``box``; ``night`` selects the moon variants."""
+        left, top, right, bottom = (round(v) for v in box)
+        draw_icon(self.draw, condition, (left, top, right, bottom), night=night)
+
+    def sun_arc(self, box: tuple[float, float, float, float]) -> int:
+        """Draw the day's sun arc (dawn to dusk, sun marked) in ``box``; returns its bottom."""
+        left, top, right, bottom = (round(v) for v in box)
+        draw_sun_arc(
+            self.draw,
+            (left, top, right, bottom),
+            self.snapshot.sun,
+            self.now,
+            self.tz,
+            self.time_format,
+            self.scale,
+        )
+        return bottom
+
+    def temperature_rows(
+        self, days: list[DailyForecast], long_names: bool = False
+    ) -> list[TemperatureRow]:
+        """Bar rows for ``days``; see :func:`rows_for_days`."""
+        return rows_for_days(self.snapshot, days, long_names)
+
+    def temperature_bars(
+        self,
+        box: tuple[float, float, float, float],
+        days: list[DailyForecast],
+        long_names: bool = False,
+    ) -> int:
+        """Draw ``days`` as temperature bars on a shared scale in ``box``; returns its bottom."""
+        left, top, right, bottom = (round(v) for v in box)
+        draw_temperature_bars(
+            self.draw,
+            (left, top, right, bottom),
+            self.temperature_rows(days, long_names),
+            self.scale,
+        )
+        return bottom
+
+    def number(self, right: float, top: float, text: str, size: float, max_width: float) -> int:
+        """Draw ``text`` in the display face, right-aligned, with the glyphs' top at ``top``.
+
+        Returns the glyph bottom. Display faces carry tall ascenders, so anchoring by
+        the glyph box keeps large numerals aligned with what sits beside them.
+        """
+        font = fit_font(self.draw, text, "display", self.px(size), max_width)
+        _, glyph_top, _, glyph_bottom = self.draw.textbbox((0, 0), text, font=font, anchor="ls")
+        self.draw.text((right, top - glyph_top), text, font=font, fill=BLACK, anchor="rs")
+        return round(top + glyph_bottom - glyph_top)
+
+    def stamped_clock(
+        self,
+        x: float,
+        y: float,
+        weight: Weight,
+        size: float,
+        align: Literal["left", "right", "center"] = "left",
+        valign: Literal["ascender", "glyphs", "middle"] = "ascender",
+        max_width: float | None = None,
+        fill: int = BLACK,
+    ) -> int:
+        """Draw the clock with :data:`CLOCK_CAPTION` before it, small and gray, on its baseline.
+
+        ``x`` is the left, right, or center of caption and clock together (``align``).
+        ``y`` is the top of the ascender (as ``text`` with anchor ``"la"``), the top of the
+        glyphs (as ``number``), or the middle (as anchor ``"mm"``), per ``valign``. The
+        clock shrinks so the pair fits ``max_width``. Returns the clock's font size in
+        pixels.
+        """
+        clock = self.clock()
+        caption_font = load_font("regular", self.px(min(max(size * 0.35, 26), 48)))
+        gap = self.px(min(size * 0.12, 18))
+        caption_width = self.draw.textlength(CLOCK_CAPTION, font=caption_font) + gap
+        if max_width is None:
+            font = load_font(weight, self.px(size))
+        else:
+            font = fit_font(self.draw, clock, weight, self.px(size), max_width - caption_width)
+        ascent, descent = font.getmetrics()
+        if valign == "glyphs":
+            baseline = y - self.draw.textbbox((0, 0), clock, font=font, anchor="ls")[1]
+        elif valign == "middle":
+            baseline = y + (ascent - descent) / 2
+        else:
+            baseline = y + ascent
+        total = caption_width + self.draw.textlength(clock, font=font)
+        left = {"left": x, "right": x - total, "center": x - total / 2}[align]
+        self.draw.text(
+            (left, baseline), CLOCK_CAPTION, font=caption_font, fill=DARK_GRAY, anchor="ls"
+        )
+        self.draw.text((left + caption_width, baseline), clock, font=font, fill=fill, anchor="ls")
+        return int(font.size)
+
+    def band_chart(self, box: tuple[float, float, float, float], days: list[DailyForecast]) -> int:
+        """Draw ``days`` as the high/low band chart in ``box``; returns its bottom."""
+        left, top, right, bottom = (round(v) for v in box)
+        draw_band_chart(
+            self.draw,
+            (left, top, right, bottom),
+            days,
+            current=self.snapshot.current.temperature,
+            scale=self.scale,
+            long_names=False,
+        )
+        return bottom
+
+    def metrics_strip(
+        self, box: tuple[float, float, float, float], compact: bool = False, extras: bool = False
+    ) -> int:
+        """The optional current metrics as glyph + value cells; returns the bottom.
+
+        Cells share the width, at most four per row (three when ``extras`` add the UV
+        index and the moon); ``compact`` drops the labels and wraps two per row.
+        """
+        left, top, right, _ = box
+        cells = self.metrics(extras=extras)
+        if not cells:
+            return round(top)
+        per_row = 2 if compact else min(len(cells), 3 if len(cells) > 4 else 4)
+        cell_w = (right - left) / per_row
+        size = self.px(48 if compact else 64)
+        row_h = size + self.px(18 if compact else 62)
+        glyphs = {
+            "Feels like": draw_thermometer,
+            "Wind": draw_wind,
+            "UV": draw_sun,
+        }
+        levels = {
+            "Humidity": self.snapshot.current.humidity_percent,
+            "Precipitation": self.snapshot.current.precipitation_probability,
+        }
+        for k, (label, value) in enumerate(cells):
+            x = round(left + cell_w * (k % per_row))
+            y = round(top + row_h * (k // per_row))
+            glyph_box = (x, y, x + size, y + size)
+            if label in glyphs:
+                glyphs[label](self.draw, glyph_box, BLACK)
+            elif label == "Moon":
+                draw_moon_phase(self.draw, glyph_box, self.snapshot.moon_phase or 0.0, BLACK)
+            else:
+                level = levels.get(label)
+                draw_drop(self.draw, glyph_box, None if level is None else level / 100, BLACK)
+            self.text(
+                (x + size + self.px(16), y + size / 2),
+                value,
+                "bold",
+                42 if compact else 50,
+                anchor="lm",
+                max_width=cell_w - size - self.px(24),
+            )
+            if not compact:
+                self.text(
+                    (x + size + self.px(16), y + size + self.px(8)),
+                    label if label != "Precipitation" else "Rain",
+                    "regular",
+                    26,
+                    fill=DARK_GRAY,
+                    anchor="la",
+                )
+        rows = (len(cells) + per_row - 1) // per_row
+        return round(top + rows * row_h)
+
+    def day_columns(self, box: tuple[float, float, float, float], days: list[DailyForecast]) -> int:
+        """Draw ``days`` as equal columns: weekday, icon, high and low, rain when likely.
+
+        A short box puts "high / low" on one line under a modest icon; a tall box (more
+        than 500 design pixels) stacks the high over the low under a large icon. Rain (a
+        drop and the probability) appears only from 20 % up, so a dry week stays quiet.
+        Returns the bottom of what was drawn.
+        """
+        left, top, right, bottom = box
+        if not days:
+            return round(top)
+        column = (right - left) / len(days)
+        tall = bottom - top > self.px(500)
+        # A tall box grows the icons and the spacing with its height, up to half again.
+        grow = min(1.25, (bottom - top) / self.px(560)) if tall else 1.0
+        icon = min(self.px((170 if tall else 120) * grow), column * 0.8, (bottom - top) * 0.4)
+        y_icon = top + self.px((90 if tall else 64) * grow)
+        y_value = y_icon + icon + self.px((50 if tall else 22) * grow)
+        y_rain = y_value + self.px((150 if tall else 70) * grow)
+        for k, day in enumerate(days):
+            cx = left + column * (k + 0.5)
+            self.text((cx, top), f"{day.date:%a}", "bold", 44 * grow if tall else 40, anchor="ma")
+            self.icon(day.condition, (cx - icon / 2, y_icon, cx + icon / 2, y_icon + icon))
+            if tall:
+                self.text(
+                    (cx, y_value),
+                    self.temperature(day.temperature_high),
+                    "bold",
+                    56 * grow,
+                    anchor="ma",
+                )
+                self.text(
+                    (cx, y_value + self.px(76 * grow)),
+                    self.temperature(day.temperature_low),
+                    "regular",
+                    48 * grow,
+                    fill=DARK_GRAY,
+                    anchor="ma",
+                )
+            else:
+                self.text(
+                    (cx, y_value),
+                    self.range_text(day),
+                    "medium",
+                    40,
+                    anchor="ma",
+                    max_width=column * 0.95,
+                )
+            probability = day.precipitation_probability
+            if probability is not None and probability >= 20:
+                drop = self.px(28 * grow)
+                x = cx - self.px(34 * grow)
+                draw_drop(
+                    self.draw,
+                    (
+                        round(x - drop / 2),
+                        round(y_rain - drop / 2),
+                        round(x + drop / 2),
+                        round(y_rain + drop / 2),
+                    ),
+                    probability / 100,
+                    DARK_GRAY,
+                )
+                self.text(
+                    (cx - self.px(14 * grow), y_rain),
+                    f"{round(probability)}%",
+                    "regular",
+                    28 * grow,
+                    fill=DARK_GRAY,
+                    anchor="lm",
+                )
+        return round(y_rain + self.px(20))
+
+    # Formatting shortcuts
+
+    def clock(self, moment: datetime | None = None) -> str:
+        return format_clock((moment or self.now).astimezone(self.tz), self.time_format)
+
+    def date_line(self) -> str:
+        return f"{self.now:%A}, {self.now:%B} {self.now.day}"
+
+    def temperature(self, value: float) -> str:
+        return format_temperature(value)
+
+    def range_text(self, day: DailyForecast) -> str:
+        high = format_temperature(day.temperature_high)
+        return f"{high} / {format_temperature(day.temperature_low)}"
+
+    def high_low(self, day: DailyForecast) -> str:
+        """``"H 75°   L 57°"``."""
+        high = format_temperature(day.temperature_high)
+        return f"H {high}   L {format_temperature(day.temperature_low)}"
+
+    def condition_label(self, condition: Condition) -> str:
+        return CONDITION_LABELS[condition]
+
+    def feels_like_text(self) -> str:
+        """``"Feels like 68°"``, or an empty string when the provider has no value."""
+        feels = self.snapshot.current.feels_like
+        return "" if feels is None else f"Feels like {self.temperature(feels)}"
+
+    def footer(self) -> None:
+        """Data freshness and units, bottom right, so stale data is obvious."""
+        snapshot = self.snapshot
+        text = (
+            f"Updated {self.clock(snapshot.fetched_at)}"
+            f"  ·  {snapshot.source}  ·  {snapshot.units.temperature_symbol}"
+        )
+        self.text(
+            (self.width - self.margin, self.height - self.margin),
+            text,
+            "regular",
+            28,
+            fill=DARK_GRAY,
+            anchor="rd",
+        )
+
+    def metrics(self, extras: bool = False) -> list[tuple[str, str]]:
+        """Optional current-conditions values that are present, as (label, value).
+
+        With ``extras``, the UV index and the moon's illumination follow the four
+        weather metrics.
+        """
+        current = self.snapshot.current
+        units = self.snapshot.units
+        wind_unit = {"kmh": "km/h", "mph": "mph", "ms": "m/s"}[units.wind]
+        rows: list[tuple[str, str]] = []
+        if current.feels_like is not None:
+            rows.append(("Feels like", self.temperature(current.feels_like)))
+        if current.humidity_percent is not None:
+            rows.append(("Humidity", f"{round(current.humidity_percent)}%"))
+        if current.wind_speed is not None:
+            rows.append(("Wind", f"{round(current.wind_speed)} {wind_unit}"))
+        if current.precipitation_probability is not None:
+            rows.append(("Precipitation", f"{round(current.precipitation_probability)}%"))
+        if extras:
+            if current.uv_index is not None:
+                rows.append(("UV", f"{round(current.uv_index)}"))
+            if self.snapshot.moon_phase is not None:
+                lit = moon_illumination(self.snapshot.moon_phase)
+                rows.append(("Moon", f"{round(lit * 100)}%"))
+        return rows
