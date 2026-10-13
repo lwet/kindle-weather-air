@@ -464,6 +464,12 @@ case "$1" in
     start)
         load_config
         if running_pid > /dev/null; then echo "already running (pid $(running_pid))"; exit 0; fi
+        # USB mode can leave Wi-Fi reconnecting. Keep the Library available until connected.
+        if ! wait_for_wifi 60; then
+            log "start: Wi-Fi unavailable; remaining in the Library"
+            "$EIPS" 0 2 'Connect to Wi-Fi, then reopen Weather dashboard.' > /dev/null 2>&1
+            exit 1
+        fi
         log "starting (server=${SERVER_URL:-${SERVER_HOST:-scan}}, orientation=$ORIENTATION)"
         # A new session so the loop outlives the SSH or KUAL shell that started it.
         setsid "$0" loop > /dev/null 2>&1 < /dev/null &

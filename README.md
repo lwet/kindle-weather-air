@@ -6,6 +6,8 @@ Deploy a Free Render Python web service: build `pip install .`, start `python -m
 
 The Kindle downloads public weather and air quality directly over its Wi-Fi connection, then POSTs both JSON responses to `/render/landscape.png` or `/render/portrait.png`. Render returns a 1072×1448 grayscale PNG without cloud weather API requests or persistent payload storage. Request bodies are capped at 1 MiB, malformed data is rejected, and remote skin changes are disabled. `/health` reports renderer readiness.
 
-This avoids free API quota collisions from shared hosting addresses. Kindle configuration uses `CLOUD_RENDER=yes`, the two API URLs, and the HTTPS Render URL. The client verifies certificates, allows 120 seconds for free service startup, and keeps its previous image if any request fails. It refreshes every 30 minutes independently of the laptop. AQI is the US AQI model output, not a local monitoring station reading.
+This avoids free API quota collisions from shared hosting addresses. Kindle configuration uses `CLOUD_RENDER=yes`, the two API URLs, and the HTTPS Render URL. The client verifies certificates, allows 120 seconds for free service startup, and keeps its previous image if any request fails. It refreshes every 5 minutes independently of the laptop. AQI is the US AQI model output, not a local monitoring station reading.
 
 Validation: 372 tests, Ruff, Mypy, and shell syntax checks passed.
+
+The footer shows the Kindle's battery percentage beside its updated time. The client reads the battery at each refresh and waits for Wi-Fi before closing the Library after USB mode. Configure `REFRESH_MINUTES="5"` on the Kindle for the five-minute schedule.
