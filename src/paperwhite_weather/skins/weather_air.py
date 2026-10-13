@@ -56,9 +56,12 @@ class WeatherAirSkin:
             (m, forecast_y, c.width - m, c.height - m - c.px(70)), snapshot.daily[:5]
         )
         updated = snapshot.fetched_at.astimezone(c.tz).strftime("%d %b %H:%M")
+        battery = (
+            "" if snapshot.battery_percent is None else f" · Battery {snapshot.battery_percent}%"
+        )
         c.text(
             (c.width - m, c.height - m),
-            f"Updated {updated} · Open-Meteo / CAMS · {snapshot.units.temperature_symbol}",
+            f"Updated {updated}{battery} · Open-Meteo / CAMS · {snapshot.units.temperature_symbol}",
             "regular",
             24,
             fill=DARK_GRAY,

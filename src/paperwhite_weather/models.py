@@ -159,6 +159,7 @@ class WeatherSnapshot(BaseModel):
 
     fetched_at: datetime
     source: str = Field(min_length=1)
+    battery_percent: int | None = Field(default=None, ge=0, le=100, strict=True)
     location: Location
     units: Units
     current: CurrentConditions
