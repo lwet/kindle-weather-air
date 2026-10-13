@@ -8,6 +8,8 @@ services:
     startCommand: python -m paperwhite_weather.cloud
     healthCheckPath: /health
     envVars:
+      - key: WEATHER_FETCH_MODE
+        value: client
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: WEATHER_LOCATION
