@@ -1,6 +1,6 @@
 """Bundled typefaces so rendering is identical on every machine and in CI.
 
-Nunito (text) is a variable font under the SIL Open Font License 1.1
+Nunito (text) uses static instances of a variable font under the SIL Open Font License 1.1
 (``assets/fonts/LICENSE-Nunito.txt``). Inter and Oswald (display numerals) are static
 instances of the Google Fonts variable fonts, made with fontTools; both are under the
 SIL Open Font License 1.1
@@ -22,21 +22,16 @@ from PIL import ImageFont
 Weight = Literal["regular", "medium", "bold", "display", "serif", "serif-bold", "serif-display"]
 
 _FILES: dict[Weight, str] = {
-    "regular": "Nunito.ttf",
-    "medium": "Nunito.ttf",
-    "bold": "Nunito.ttf",
+    "regular": "Nunito-Regular.ttf",
+    "medium": "Nunito-Medium.ttf",
+    "bold": "Nunito-Bold.ttf",
     "display": "Oswald-Medium.ttf",
     "serif": "DejaVuSerif.ttf",
     "serif-bold": "DejaVuSerif-Bold.ttf",
     "serif-display": "PlayfairDisplay[wght].ttf",
 }
 #: Variable fonts and the weight-axis value to set after loading.
-_VARIATIONS: dict[Weight, float] = {
-    "regular": 400.0,
-    "medium": 600.0,
-    "bold": 700.0,
-    "serif-display": 700.0,
-}
+_VARIATIONS: dict[Weight, float] = {"serif-display": 700.0}
 
 
 @lru_cache(maxsize=64)
