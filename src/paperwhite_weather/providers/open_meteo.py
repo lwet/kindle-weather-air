@@ -42,6 +42,7 @@ _DAILY_FIELDS = (
     "temperature_2m_max",
     "temperature_2m_min",
     "precipitation_probability_max",
+    "precipitation_sum",
     "uv_index_max",
 )
 _HOURLY_FIELDS = (
@@ -202,9 +203,12 @@ def parse_forecast(
     if len(uv_maxima) != len(days):
         raise OpenMeteoError("Open-Meteo daily arrays are of unequal length")
 
+    amounts = daily.get("precipitation_sum") or [None] * len(days)
+    if len(amounts) != len(days):
+        raise OpenMeteoError("Open-Meteo daily arrays are of unequal length")
     forecasts = []
-    rows = zip(days, codes, highs, lows, probabilities, uv_maxima, strict=True)
-    for day, code, high, low, probability, uv_max in rows:
+    rows = zip(days, codes, highs, lows, probabilities, uv_maxima, amounts, strict=True)
+    for day, code, high, low, probability, uv_max, amount in rows:
         if high is None or low is None:
             raise OpenMeteoError(f"Open-Meteo has no temperature range for {day}")
         forecasts.append(
@@ -215,6 +219,7 @@ def parse_forecast(
                 temperature_high=float(high),
                 precipitation_probability=_optional_float(probability),
                 uv_index_max=_optional_float(uv_max),
+                precipitation_sum_mm=_optional_float(amount),
             )
         )
 

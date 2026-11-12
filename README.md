@@ -11,3 +11,9 @@ This avoids free API quota collisions from shared hosting addresses. Kindle conf
 Validation: 372 tests, Ruff, Mypy, and shell syntax checks passed.
 
 The footer shows the Kindle's battery percentage beside its updated time. The client reads the battery at each refresh and waits for Wi-Fi before closing the Library after USB mode. Configure `REFRESH_MINUTES="5"` on the Kindle for the five-minute schedule.
+
+The portrait dashboard shows current conditions, humidity, the day's forecast precipitation
+in millimeters, local sunrise and sunset, five world clocks, and a five-day forecast.
+World clocks use IANA time zones and account for daylight saving. They reflect the frame
+update time shown in the footer. The client requests `precipitation_sum` from Open-Meteo;
+if unavailable the amount is displayed as a dash.

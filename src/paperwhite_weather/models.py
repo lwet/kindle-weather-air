@@ -61,6 +61,7 @@ class DailyForecast(BaseModel):
     temperature_high: float
     precipitation_probability: float | None = Field(default=None, ge=0.0, le=100.0)
     uv_index_max: float | None = Field(default=None, ge=0.0)
+    precipitation_sum_mm: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _low_not_above_high(self) -> DailyForecast:

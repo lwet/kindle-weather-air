@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from paperwhite_weather.config import Settings
 from paperwhite_weather.models import WeatherSnapshot
 from paperwhite_weather.providers.open_meteo import parse_forecast
-from paperwhite_weather.providers.weather_air import WeatherAirProvider, parse_air_quality
+from paperwhite_weather.providers.weather_air import WeatherAirProvider
 from paperwhite_weather.render import render_dashboard
 from paperwhite_weather.service import DashboardHandler, DashboardServer, DashboardService
 
@@ -84,8 +84,7 @@ class ClientRenderHandler(CloudHandler):
             snapshot = WeatherSnapshot.model_validate(
                 snapshot.model_dump()
                 | {
-                    "source": "Open-Meteo / CAMS",
-                    "air_quality": parse_air_quality(data["air"], settings.location),
+                    "source": "Open-Meteo",
                     "battery_percent": data.get("battery_percent"),
                 }
             )

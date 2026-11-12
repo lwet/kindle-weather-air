@@ -1,7 +1,8 @@
-"""A calm weather and air quality layout built with the original project's drawing tools."""
+"""Readable e-ink weather display with local solar times and world clocks."""
 
 from datetime import datetime
 from typing import ClassVar
+from zoneinfo import ZoneInfo
 
 from PIL import Image
 
@@ -10,31 +11,67 @@ from paperwhite_weather.models import WeatherSnapshot
 from paperwhite_weather.skins.base import DARK_GRAY, PALE_GRAY
 from paperwhite_weather.skins.common import Canvas
 
+CITIES = (
+    ("Mexico City", "America/Mexico_City"),
+    ("Washington DC", "America/New_York"),
+    ("London", "Europe/London"),
+    ("Pretoria", "Africa/Johannesburg"),
+    ("Auckland", "Pacific/Auckland"),
+)
+
+
+def world_clock(now: datetime, zone: str) -> str:
+    """Return a local 12-hour time, accounting for daylight saving."""
+    local = now.astimezone(ZoneInfo(zone))
+    return f"{local.hour % 12 or 12}:{local.minute:02d} {'am' if local.hour < 12 else 'pm'}"
+
 
 class WeatherAirSkin:
-    """Current weather, a five-day forecast, and an explicitly labeled air quality panel."""
+    """Weather and clocks, optimized for the portrait display."""
 
     name: ClassVar[str] = "weather-air"
 
     def compose(
         self, snapshot: WeatherSnapshot, settings: Settings, now: datetime, size: tuple[int, int]
     ) -> Image.Image:
-        """Draw a landscape or portrait frame at the requested size."""
+        """Draw a weather frame at the requested dimensions."""
         c = Canvas(size, snapshot, settings, now)
-        m, w = c.margin, c.content_width
-        c.text((m, m), snapshot.location.name or "Weather", "bold", 48)
-        c.text((c.width - m, m + c.px(7)), c.date_line(), "regular", 28, anchor="ra")
-        c.rule(m, m + c.px(80), w, thickness=3)
-        y = m + c.px(115)
-        icon = c.px(185 if c.landscape else 220)
-        c.icon(snapshot.current.condition, (m, y, m + icon, y + icon), night=c.night)
-        x = m + icon + c.px(30)
-        c.text((x, y - c.px(20)), c.temperature(snapshot.current.temperature), "bold", 180)
+        m = c.px(35)
+        width = c.width - 2 * m
+        y = c.px
+        date = f"{now:%A}, {now:%B} {now.day}"
+        c.text((m, y(8)), date, "bold", 80, max_width=width)
+        sun = snapshot.sun
+        sunrise = sun.sunrise.astimezone(c.tz).strftime("%H:%M")
+        sunset = sun.sunset.astimezone(c.tz).strftime("%H:%M")
+        location = snapshot.location.name or "Weather"
+        if location.lower() == "alderley":
+            location = "Alderley, QLD"
         c.text(
-            (m, y + icon + c.px(20)), c.condition_label(snapshot.current.condition), "medium", 42
+            (m, y(104)),
+            f"{location}.  Sunrise: {sunrise}  Sunset: {sunset}",
+            "regular",
+            39,
+            max_width=width,
         )
-        c.text((m, y + icon + c.px(80)), c.feels_like_text(), "regular", 30, fill=DARK_GRAY)
-        c.text((m, y + icon + c.px(130)), c.range_text(snapshot.today), "regular", 30)
+        c.text(
+            (m, y(205)),
+            c.temperature(snapshot.current.temperature),
+            "bold",
+            190,
+            max_width=width * 0.48,
+        )
+        c.text(
+            (m, y(390)),
+            c.condition_label(snapshot.current.condition),
+            "bold",
+            58,
+            max_width=width * 0.48,
+        )
+        c.text(
+            (m, y(465)), c.feels_like_text(), "regular", 45, fill=DARK_GRAY, max_width=width * 0.48
+        )
+        c.text((m, y(525)), c.range_text(snapshot.today), "regular", 44, max_width=width * 0.48)
         rain = snapshot.today.precipitation_probability
         wind = snapshot.current.wind_speed
         rain_text = "—" if rain is None else f"{rain:.0f}%"
@@ -43,43 +80,63 @@ class WeatherAirSkin:
             if wind is None
             else f"{wind:.0f} {dict(kmh='km/h', mph='mph', ms='m/s')[snapshot.units.wind]}"
         )
-        c.text((m, y + icon + c.px(180)), f"Rain {rain_text}   ·   Wind {wind_text}", "regular", 28)
-        if c.landscape:
-            left = m + w * 0.56
-            self._air(c, left, y, c.width - m - left)
-            forecast_y = m + c.px(585)
-        else:
-            self._air(c, m, m + c.px(590), w)
-            forecast_y = m + c.px(960)
-        c.rule(m, forecast_y - c.px(25), w, PALE_GRAY, 2)
-        c.temperature_bars(
-            (m, forecast_y, c.width - m, c.height - m - c.px(70)), snapshot.daily[:5]
+        c.text(
+            (m, y(590)),
+            f"Rain {rain_text}  ·  Wind {wind_text}",
+            "regular",
+            37,
+            max_width=width * 0.49,
         )
+        left = m + width * 0.52
+        right = c.width - m
+        for i, (city, zone) in enumerate(CITIES):
+            row_y = y(220 + i * 77)
+            c.text((left, row_y), city, "bold", 36, max_width=width * 0.29)
+            c.text(
+                (right, row_y),
+                world_clock(now, zone),
+                "regular",
+                36,
+                anchor="ra",
+                max_width=width * 0.18,
+            )
+            if i < len(CITIES) - 1:
+                c.rule(left, row_y + y(58), right - left, PALE_GRAY, 1)
+        c.rule(m, y(670), width, PALE_GRAY, 2)
+        c.text((m, y(690)), "Humidity", "regular", 42, fill=DARK_GRAY)
+        humidity = snapshot.current.humidity_percent
+        c.text((m, y(745)), "—" if humidity is None else f"{humidity:.0f}%", "bold", 70)
+        split = m + width * 0.52
+        c.text(
+            (split, y(690)),
+            "Today's precipitation",
+            "regular",
+            39,
+            fill=DARK_GRAY,
+            max_width=width * 0.48,
+        )
+        amount = snapshot.today.precipitation_sum_mm
+        c.text(
+            (split, y(745)),
+            "— mm" if amount is None else f"{amount:g} mm",
+            "bold",
+            70,
+            max_width=width * 0.48,
+        )
+        c.text((split, y(825)), "Forecast total", "regular", 24, fill=DARK_GRAY)
+        c.rule(m, y(865), width, PALE_GRAY, 2)
+        c.temperature_bars((m, y(885), c.width - m, y(1332)), snapshot.daily[:5])
         updated = snapshot.fetched_at.astimezone(c.tz).strftime("%d %b %H:%M")
         battery = (
             "" if snapshot.battery_percent is None else f" · Battery {snapshot.battery_percent}%"
         )
         c.text(
-            (c.width - m, c.height - m),
-            f"Updated {updated}{battery} · Open-Meteo / CAMS · {snapshot.units.temperature_symbol}",
+            (c.width / 2, c.height - y(30)),
+            f"Updated {updated}{battery}",
             "regular",
-            24,
+            32,
             fill=DARK_GRAY,
-            anchor="rd",
-            max_width=w,
+            anchor="md",
+            max_width=width,
         )
         return c.image
-
-    def _air(self, c: Canvas, x: float, y: float, width: float) -> None:
-        c.text((x, y), "AIR QUALITY", "medium", 28, fill=DARK_GRAY)
-        air = c.snapshot.air_quality
-        if air is None:
-            c.text((x, y + c.px(75)), "Unavailable", "bold", 50, max_width=width)
-            return
-        c.text((x, y + c.px(40)), str(round(air.us_aqi)), "bold", 140, max_width=width * 0.6)
-        c.text((x + width, y + c.px(135)), "US AQI", "regular", 30, anchor="ra")
-        c.text((x, y + c.px(210)), air.category, "medium", 42, max_width=width)
-        pm = "—" if air.pm2_5 is None else f"{air.pm2_5:.1f}"
-        c.text((x, y + c.px(275)), f"PM2.5  {pm} µg/m³", "regular", 30)
-        data_time = air.time.astimezone(c.tz).strftime("%d %b %H:%M")
-        c.text((x, y + c.px(330)), f"Modeled · {data_time}", "regular", 24, fill=DARK_GRAY)
