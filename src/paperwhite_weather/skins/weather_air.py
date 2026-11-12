@@ -20,6 +20,14 @@ CITIES = (
 )
 
 
+def date_title(now: datetime) -> str:
+    """Format an abbreviated weekday and an English ordinal date."""
+    weekdays = ("Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun")
+    day = now.day
+    suffix = "th" if 11 <= day % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{weekdays[now.weekday()]}, {now:%B} {day}{suffix}"
+
+
 def world_clock(now: datetime, zone: str) -> str:
     """Return a local 12-hour time, accounting for daylight saving."""
     local = now.astimezone(ZoneInfo(zone))
@@ -39,7 +47,7 @@ class WeatherAirSkin:
         m = c.px(35)
         width = c.width - 2 * m
         y = c.px
-        date = f"{now:%A}, {now:%B} {now.day}"
+        date = date_title(now)
         c.text((m, y(8)), date, "bold", 80, max_width=width)
         sun = snapshot.sun
         sunrise = sun.sunrise.astimezone(c.tz).strftime("%H:%M")

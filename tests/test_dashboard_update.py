@@ -5,7 +5,7 @@ from pathlib import Path
 from paperwhite_weather.config import Settings
 from paperwhite_weather.providers.open_meteo import OpenMeteoError, parse_forecast
 from paperwhite_weather.render import render_dashboard
-from paperwhite_weather.skins.weather_air import world_clock
+from paperwhite_weather.skins.weather_air import date_title, world_clock
 
 
 def test_world_clock_daylight_saving():
@@ -88,3 +88,12 @@ def test_client_render_without_air(monkeypatch):
         finally:
             server.shutdown()
             thread.join()
+
+
+def test_date_title_ordinals():
+    assert date_title(datetime(2026, 11, 12)) == "Thurs, November 12th"
+    assert date_title(datetime(2026, 12, 1)) == "Tues, December 1st"
+    assert date_title(datetime(2026, 12, 2)) == "Wed, December 2nd"
+    assert date_title(datetime(2026, 12, 3)) == "Thurs, December 3rd"
+    assert date_title(datetime(2026, 12, 11)).endswith("11th")
+    assert date_title(datetime(2026, 12, 21)).endswith("21st")
